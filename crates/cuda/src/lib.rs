@@ -104,14 +104,19 @@ pub struct WrapRequestPayload {
 impl SP1CudaProver {
     /// Creates a new [SP1Prover] that runs inside a Docker container and returns a
     /// [SP1ProverClient] that can be used to communicate with the container.
-    pub fn new() -> Result<Self, Box<dyn StdError>> {
-        let container_name = "sp1-gpu";
+   pub fn new() -> Result<Self, Box<dyn StdError>> {
+        let container_name = std::env::var("SP1_CONTAINER_NAME").unwrap();
+        // let container_name = "sp1-gpu"; // TODO: take from env 
         let image_name = std::env::var("SP1_GPU_IMAGE")
             .unwrap_or_else(|_| "public.ecr.aws/succinct-labs/moongate:v4.0.0".to_string());
 
         let cleaned_up = Arc::new(AtomicBool::new(false));
-        let cleanup_name = container_name;
+        let cleanup_name = container_name.clone();
         let cleanup_flag = cleaned_up.clone();
+
+        let device_port = std::env::var("SP1_PORT").unwrap();
+
+        let gpu_id = std::env::var("SP1_GPU_ID").unwrap();
 
         // Check if Docker is available and the user has necessary permissions
         if !Self::check_docker_availability()? {
@@ -131,12 +136,12 @@ impl SP1CudaProver {
                 "-e",
                 &format!("RUST_LOG={}", rust_log_level),
                 "-p",
-                "3000:3000",
+                &format!("{}:3000", &device_port), // TODO take this from env device port 
                 "--rm",
                 "--gpus",
-                "all",
+                &gpu_id, // TODO: gpu also passable from env
                 "--name",
-                container_name,
+                &container_name,
                 &image_name,
             ])
             .stdout(Stdio::piped())
@@ -180,7 +185,7 @@ impl SP1CudaProver {
         ctrlc::set_handler(move || {
             tracing::debug!("received Ctrl+C, cleaning up...");
             if !cleanup_flag.load(Ordering::SeqCst) {
-                cleanup_container(cleanup_name);
+                cleanup_container(&cleanup_name);
                 cleanup_flag.store(true, Ordering::SeqCst);
             }
             std::process::exit(0);
@@ -192,7 +197,7 @@ impl SP1CudaProver {
 
         // Check if the container is ready
         let client = Client::from_base_url(
-            Url::parse("http://localhost:3000/twirp/").expect("failed to parse url"),
+            Url::parse(&format!("http://localhost:{}/twirp/", &device_port)).expect("failed to parse url"), // TOOD:: change to the host port 
         )
         .expect("failed to create client");
 
@@ -225,7 +230,7 @@ impl SP1CudaProver {
         })?;
 
         let client = Client::new(
-            Url::parse("http://localhost:3000/twirp/").expect("failed to parse url"),
+            Url::parse(&format!("http://localhost:{}/twirp/", &device_port)).expect("failed to parse url"), // change to the host port 
             reqwest::Client::new(),
             vec![Box::new(LoggingMiddleware) as Box<dyn Middleware>],
         )
