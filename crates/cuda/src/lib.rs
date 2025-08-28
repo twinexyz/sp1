@@ -212,6 +212,8 @@ impl SP1CudaProver {
         let image_name = std::env::var("SP1_GPU_IMAGE")
             .unwrap_or_else(|_| "public.ecr.aws/succinct-labs/moongate:v5.0.0".to_string());
          let network = std::env::var("SP1_NETWORK").unwrap_or("bridge".to_string());
+
+        let runtime_env = std::env::var("SP1_RUNTIME_ENV").unwrap_or("".to_string());
                     
 
         let cleaned_up = Arc::new(AtomicBool::new(false));
@@ -272,8 +274,14 @@ impl SP1CudaProver {
         // Wait a few seconds for the container to start
         std::thread::sleep(Duration::from_secs(2));
 
+        let mut base_url = format!("http://localhost:{port}/twirp/"); 
+
+        if runtime_env == String::from("docker") {
+            base_url = format!("http://{container_name}:3000/twirp/"); 
+        }
+
         let client = Client::new(
-            Url::parse(&format!("http://localhost:{port}/twirp/")).expect("failed to parse url"),
+            Url::parse(&base_url).expect("failed to parse url"),
             reqwest::Client::new(),
             reqwest_middlewares,
         )
